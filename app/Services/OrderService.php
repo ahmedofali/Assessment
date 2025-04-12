@@ -26,8 +26,8 @@ use Illuminate\Support\Facades\Log;
 class OrderService
 {
     public function __construct(
-        private readonly OrderRepositoryInterface   $orderRepository,
-        private readonly ProductRepositoryInterface $productRepository,
+        private readonly OrderRepositoryInterface      $orderRepository,
+        private readonly ProductRepositoryInterface    $productRepository,
         private readonly IngredientRepositoryInterface $ingredientRepository,
     )
     {
@@ -131,8 +131,7 @@ class OrderService
      */
     private function checkAndHandleLowStockAlert(Ingredient $ingredient, float $originalStock): void
     {
-        $thresholdPercentage = config('ingredients.low_stock_threshold_percentage', 50);
-        $thresholdValue      = $ingredient->initial_stock * ($thresholdPercentage / 100);
+        $thresholdValue = $ingredient->initial_stock * getLowStockThresholdPercentage();
 
         if (
             $ingredient->stock < $thresholdValue &&

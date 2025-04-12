@@ -33,7 +33,7 @@ class IngredientStockLevelLowJob implements ShouldQueue, ShouldBeUnique
     public function uniqueId(): string
     {
         // force uniqueness in tests to prevent duplicate rejection
-        if (app()->environment('testing')) {
+        if (isTestingEnvironment()) {
             return uniqid("test_");
         }
 
