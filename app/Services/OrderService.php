@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Contracts\OrderRepositoryInterface;
+use App\Contracts\ProductRepositoryInterface;
 use App\Data\Storefront\StoreOrderData;
 use App\Enums\IngredientStockChangeReason;
 use App\Exceptions\LogicalException;
@@ -10,7 +12,6 @@ use App\Models\Ingredient;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
-use App\Repositories\OrderRepository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +24,10 @@ use Illuminate\Support\Facades\Log;
  */
 class OrderService
 {
-    public function __construct(private readonly OrderRepository $orderRepository)
+    public function __construct(
+        private readonly OrderRepositoryInterface   $orderRepository,
+        private readonly ProductRepositoryInterface $productRepository,
+    )
     {
     }
 
@@ -165,7 +169,7 @@ class OrderService
     private function prepareOrderLineItems(StoreOrderData $data): SupportCollection
     {
         $requestedProducts = collect($data->products);
-        $products          = Product::query()->whereIn('id', $requestedProducts->pluck('productId'))->get();
+        $products          = $this->productRepository->findManyByIds($requestedProducts->pluck('productId')->toArray());
 
         return collect($requestedProducts)->map(function ($item) use ($products) {
             /** @var Product $product */

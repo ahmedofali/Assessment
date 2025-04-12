@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Contracts\OrderRepositoryInterface;
+use App\Contracts\ProductRepositoryInterface;
 use App\Repositories\OrderRepository;
+use App\Repositories\ProductRepository;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
@@ -24,6 +26,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->app->singleton(OrderRepositoryInterface::class, OrderRepository::class);
+        $this->app->singleton(ProductRepositoryInterface::class, ProductRepository::class);
 
         if (app()->environment('local')) {
             $this->addDebugQueries();
