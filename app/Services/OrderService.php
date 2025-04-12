@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\IngredientRepositoryInterface;
 use App\Contracts\OrderRepositoryInterface;
 use App\Contracts\ProductRepositoryInterface;
 use App\Data\Storefront\StoreOrderData;
@@ -27,6 +28,7 @@ class OrderService
     public function __construct(
         private readonly OrderRepositoryInterface   $orderRepository,
         private readonly ProductRepositoryInterface $productRepository,
+        private readonly IngredientRepositoryInterface $ingredientRepository,
     )
     {
     }
@@ -76,9 +78,8 @@ class OrderService
 
         // Lock
         /** @var Collection|Ingredient[] $ingredients */
-        $ingredients = Ingredient::query()->whereIn('id', array_keys($ingredientUsage))
-            ->lockForUpdate()
-            ->get()
+        $ingredients = $this->ingredientRepository
+            ->findManyByIdsWithLock(array_keys($ingredientUsage))
             ->keyBy('id');
 
         foreach ($ingredientUsage as $ingredientId => $amount) {
@@ -96,7 +97,7 @@ class OrderService
             // 1 - Check low stock threshold and dispatch event before save (after commit)
             $this->checkAndHandleLowStockAlert($ingredient, $ingredientStockOriginalValue);
 
-            $ingredient->save();
+            $this->ingredientRepository->update($ingredient);
 
             // 2 - Add stock movement record
             $this->createStockMovementRecord($ingredient, $order, $amount);

@@ -2,9 +2,7 @@
 
 namespace App\Repositories;
 
-use App\Contracts\OrderRepositoryInterface;
 use App\Contracts\ProductRepositoryInterface;
-use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Collection;
 
