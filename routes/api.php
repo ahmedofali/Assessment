@@ -7,6 +7,5 @@ Route::prefix('orders')
     ->name('orders.')
     ->controller(OrderController::class)
     ->group(function () {
-        Route::post('/', 'store');
-//            ->middleware('idempotent');
+        Route::post('/', 'store')->middleware('idempotent');
 });
