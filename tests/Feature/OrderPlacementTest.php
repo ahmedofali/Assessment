@@ -2,14 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Enums\IngredientStockChangeReason;
 use App\Jobs\IngredientStockLevelLowJob;
 use App\Models\Ingredient;
+use App\Models\IngredientStockMovement;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
 use Database\Seeders\ProductWithIngredientsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
@@ -91,11 +92,21 @@ class OrderPlacementTest extends TestCase
         // ✅ Assert the alert was only sent once
         $this->assertGreaterThan(0, $this->getIngredientsSentAlertCount());
 
-        Log::debug($a);
-        Log::debug(config('ingredients.low_stock_threshold_percentage') / 100);
-        Log::debug($this->getIngredientsSentAlertCount());
-
         Queue::assertPushed(IngredientStockLevelLowJob::class, 1);
+    }
+
+    public function test_it_records_ingredients_stock_movements()
+    {
+        $response = $this->createOrder($this->product->id, 2)->assertStatus(200);
+
+        // Check order was created
+        $this->assertDatabaseCount('orders', 1);
+
+        $this->assertDatabaseHas('ingredient_stock_movements', [
+            'ingredient_id'   => $this->product->ingredients->first()->id,
+            'order_id'        => $response->json('id'),
+            'movement_reason' => IngredientStockChangeReason::ORDER->value
+        ]);
     }
 
     private function getIngredientsSentAlertCount(): int
@@ -120,17 +131,9 @@ class OrderPlacementTest extends TestCase
             'products' => [
                 [
                     'product_id' => $productId,
-                    'quantity'   => $quantity, // any quantity to consume more, but not cross threshold again
+                    'quantity'   => $quantity,
                 ]
             ]
         ]);
     }
-
-//    protected function tearDown(): void
-//    {
-//        parent::tearDown();
-//
-//        // Clear all unique locks
-//        Cache::flush();
-//    }
 }
