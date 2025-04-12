@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Storefront;
 
-use App\Data\Storefront\StoreOrderProductsData;
+use App\Data\Storefront\StoreOrderData;
 use App\Exceptions\LogicalException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreOrderRequest;
@@ -21,7 +21,7 @@ class OrderController extends Controller
      */
     public function store(StoreOrderRequest $request): JsonResponse
     {
-        $data = StoreOrderProductsData::from($request->validated());
+        $data = StoreOrderData::from($request->validated());
 
         $order = $this->orderService->store($data);
 

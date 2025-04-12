@@ -63,7 +63,7 @@ class OrderPlacementTest extends TestCase
         // Check order was created
         $this->assertDatabaseCount('orders', 1);
 
-        $this->assertDatabaseHas('order_products', [
+        $this->assertDatabaseHas('line_items', [
             'product_id' => $this->product->id,
             'quantity'   => 2
         ]);

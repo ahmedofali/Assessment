@@ -8,7 +8,7 @@ use Spatie\LaravelData\Data;
 use Spatie\LaravelData\Mappers\SnakeCaseMapper;
 
 #[MapName(SnakeCaseMapper::class)]
-class StoreOrderProductsData extends Data
+class StoreOrderData extends Data
 {
     public function __construct(
         /** @var Collection<int, StoreOrderProductData> */

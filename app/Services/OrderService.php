@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Data\Storefront\StoreOrderProductsData;
+use App\Data\Storefront\StoreOrderData;
 use App\Enums\IngredientStockChangeReason;
 use App\Exceptions\LogicalException;
 use App\Jobs\IngredientStockLevelLowJob;
@@ -10,7 +10,9 @@ use App\Models\Ingredient;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Repositories\OrderRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -21,10 +23,14 @@ use Illuminate\Support\Facades\Log;
  */
 class OrderService
 {
+    public function __construct(private readonly OrderRepository $orderRepository)
+    {
+    }
+
     /**
      * @throws LogicalException|\Throwable
      */
-    public function store(StoreOrderProductsData $data): Order
+    public function store(StoreOrderData $data): Order
     {
         try {
             DB::beginTransaction();
@@ -48,6 +54,7 @@ class OrderService
             // Later, we might catch this specific exception (QueryException) and prevent it from being reported to the APM.
             Log::debug($exception->getMessage());
 
+            // should be translated
             throw new LogicalException("Error happened please try again later");
         }
     }
@@ -56,6 +63,43 @@ class OrderService
      * @throws LogicalException
      */
     private function processIngredientsStockManagement(Order $order): void
+    {
+        // Eager load everything in one go
+        $order = $this->orderRepository->getWithLineItemsAndIngredients($order->id);
+
+        // Get the ingredients and their usages in order to update them
+        $ingredientUsage = $this->calculateOrderIngredientsUsage($order);
+
+        // Lock
+        /** @var Collection|Ingredient[] $ingredients */
+        $ingredients = Ingredient::query()->whereIn('id', array_keys($ingredientUsage))
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        foreach ($ingredientUsage as $ingredientId => $amount) {
+            $ingredient                   = $ingredients[$ingredientId] ?? throw new LogicalException("Ingredient not found.");
+            $ingredientStockOriginalValue = $ingredient->stock;
+
+            // Does the ingredient have enough stock?
+            if ($ingredient->stock < $amount) {
+                throw new LogicalException("Not enough {$ingredient->name} in stock.");
+            }
+
+            // Update the stock
+            $ingredient->stock -= $amount;
+
+            // 1 - Check low stock threshold and dispatch event before save (after commit)
+            $this->checkAndHandleLowStockAlert($ingredient, $ingredientStockOriginalValue);
+
+            $ingredient->save();
+
+            // 2 - Add stock movement record
+            $this->createStockMovementRecord($ingredient, $order, $amount);
+        }
+    }
+
+    private function calculateOrderIngredientsUsage(Order $order): array
     {
         $ingredientUsage = [];
 
@@ -70,77 +114,78 @@ class OrderService
             }
         }
 
-        // Lock
-        /** @var Collection|Ingredient[] $ingredients */
-        $ingredients = Ingredient::query()->whereIn('id', array_keys($ingredientUsage))
-            ->lockForUpdate()
-            ->get()
-            ->keyBy('id');
+        return $ingredientUsage;
+    }
 
-        foreach ($ingredientUsage as $ingredientId => $amount) {
-            $ingredient                   = $ingredients[$ingredientId] ?? throw new LogicalException("Ingredient not found.");
-            $ingredientStockOriginalValue = $ingredient->stock;
+    /**
+     * Check if ingredient stock is below threshold and handle alert if needed.
+     *
+     * @param Ingredient $ingredient
+     * @param float $originalStock
+     * @return void
+     */
+    private function checkAndHandleLowStockAlert(Ingredient $ingredient, float $originalStock): void
+    {
+        $thresholdPercentage = config('ingredients.low_stock_threshold_percentage', 50);
+        $thresholdValue      = $ingredient->initial_stock * ($thresholdPercentage / 100);
 
-            if ($ingredient->stock < $amount) {
-                throw new LogicalException("Not enough {$ingredient->name} in stock.");
-            }
+        if (
+            $ingredient->stock < $thresholdValue &&
+            ! $ingredient->alert_sent &&
+            $originalStock >= $thresholdValue
+        ) {
+            $ingredient->alert_sent = true;
 
-            // 1 - Check low stock threshold and dispatch event before save (after commit)
-            $thresholdPercentage = config('ingredients.low_stock_threshold_percentage', 50);
-            $thresholdValue      = $ingredient->initial_stock * ($thresholdPercentage / 100);
-            $ingredient->stock   = $ingredient->stock - $amount;
-
-            if (
-                $ingredient->stock < $thresholdValue
-                && ! $ingredient->alert_sent
-                && $ingredientStockOriginalValue >= $thresholdValue
-            ) {
-                $ingredient->alert_sent = true;
-
-                // Dispatch job AFTER flag is set to avoid race condition
-                IngredientStockLevelLowJob::dispatch($ingredient->id)->afterCommit();
-            }
-
-            $ingredient->save();
-
-            // 2 - Add stock movement record
-            $ingredient->stockMovements()->create([
-                'order_id'        => $order->id,
-                'quantity'        => $amount,
-                'movement_reason' => IngredientStockChangeReason::ORDER->value,
-            ]);
+            // Queue job to be dispatched after transaction commits
+            IngredientStockLevelLowJob::dispatch($ingredient->id)->afterCommit();
         }
     }
 
-    private function createOrder(StoreOrderProductsData $data): Order
+    private function createOrder(StoreOrderData $data): Order
     {
         // Use a fake user here in order to test the logic of the order creation process
         $user = User::query()->first();
 
-        $productIds = collect($data->products)->pluck('productId');
-        $products   = Product::query()->whereIn('id', $productIds->toArray())->get();
-        $lineItems  = collect();
+        // Prepare Line items
+        $lineItems = $this->prepareOrderLineItems($data);
 
-        foreach ($data->products as $item) {
-            /** @var Product $product */
-            $product  = $products->where('id', $item->productId)->first();
-            $quantity = $item->quantity;
-
-            $lineItems->push([
-                'product_id' => $product->id,
-                'quantity'   => $quantity,
-                'unit_price' => $product->price,
-                'total'      => $product->price * $quantity,
-            ]);
-        }
-
-        /** @var Order $order */
-        $order = $user->orders()->create([
-            'total' => $lineItems->sum('total')
+        $order = $this->orderRepository->create([
+            'user_id' => $user->id,
+            'total'   => $lineItems->sum('total')
         ]);
 
-        $order->lineItems()->createMany($lineItems);
+        // Create line items
+        $this->orderRepository->createLineItems(
+            $order->id, $lineItems->toArray()
+        );
 
         return $order;
+    }
+
+    private function prepareOrderLineItems(StoreOrderData $data): SupportCollection
+    {
+        $requestedProducts = collect($data->products);
+        $products          = Product::query()->whereIn('id', $requestedProducts->pluck('productId'))->get();
+
+        return collect($requestedProducts)->map(function ($item) use ($products) {
+            /** @var Product $product */
+            $product = $products->where('id', $item->productId)->first();
+
+            return [
+                'product_id' => $product->id,
+                'quantity'   => $item->quantity,
+                'unit_price' => $product->price,
+                'total'      => $product->calculatePrice($item->quantity),
+            ];
+        });
+    }
+
+    private function createStockMovementRecord(Ingredient $ingredient, Order $order, float $amount): void
+    {
+        $ingredient->stockMovements()->create([
+            'order_id'        => $order->id,
+            'quantity'        => $amount,
+            'movement_reason' => IngredientStockChangeReason::ORDER->value,
+        ]);
     }
 }

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property Product $product
  * @property int $quantity
  */
-class OrderProduct extends Model
+class LineItem extends Model
 {
     protected $fillable = [
         'order_id',

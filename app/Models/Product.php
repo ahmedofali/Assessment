@@ -29,7 +29,7 @@ class Product extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
-        'price' => 'float',
+        'price'     => 'float',
     ];
 
     public function ingredients(): BelongsToMany
@@ -39,5 +39,11 @@ class Product extends Model
             ->using(IngredientProduct::class)
             ->withPivot(['ingredient_quantity'])
             ->withTimestamps();
+    }
+
+    public function calculatePrice(int $quantity): float
+    {
+        // Extracted Here in order to if we wanted to add vat or any other criteria
+        return $this->price * $quantity;
     }
 }
