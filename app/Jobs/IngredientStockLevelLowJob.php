@@ -45,9 +45,6 @@ class IngredientStockLevelLowJob implements ShouldQueue, ShouldBeUnique
      */
     public function handle(): void
     {
-        // Here we may save the vendor of the ingredient and get his email from ingredient relation with vendor table
-        // For the sake of simplicity we will set it as a configuration
-
         $ingredient = Ingredient::query()->findOrFail($this->ingredientId);
 
         Mail::to($ingredient->merchant->email)->send(new IngredientLowStockAlertMail($this->ingredientId));

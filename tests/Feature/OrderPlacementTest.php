@@ -5,13 +5,11 @@ namespace Tests\Feature;
 use App\Enums\IngredientStockChangeReason;
 use App\Jobs\IngredientStockLevelLowJob;
 use App\Models\Ingredient;
-use App\Models\IngredientStockMovement;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
 use Database\Seeders\ProductWithIngredientsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -81,10 +79,8 @@ class OrderPlacementTest extends TestCase
     {
         Queue::fake();
 
-        $a = $this->getProductQuantityBelowThreshold();
-
         // First order - triggers alert
-        $this->createOrder($this->product->id, $a)->assertStatus(200);
+        $this->createOrder($this->product->id, $this->getProductQuantityBelowThreshold())->assertStatus(200);
 
         // Second order - should not trigger alert again
         $this->createOrder($this->product->id, 1)->assertStatus(200);
